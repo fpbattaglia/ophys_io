@@ -18,7 +18,7 @@ echo $WORKDIR
 cd $WORKDIR
 
 
-OUTFILE=${JOB_NAME}.o${JOB_ID}
+OUTFILE=${JOB_NAME}.o${JOB_ID}.${SGE_TASK_ID}
 echo outfile $OUTFILE
 mkdir -p battaglia
 cd battaglia
