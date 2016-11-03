@@ -56,6 +56,7 @@ def main(cli_args=None):
         parser.add_argument("--remove-trailing-zeros", action='store_true')
         parser.add_argument("--dry-run", action='store_true')
         parser.add_argument("-z", "--zero-dead-channels", action='store_true')
+        parser.add_argument("-g", "--channel-groups", type=int, nargs="+", help="limit to only a subset of the channel groups")
         cli_args = parser.parse_args()
 
     log_level = logging.DEBUG if cli_args.verbose else logging.INFO
@@ -75,9 +76,13 @@ def main(cli_args=None):
     elif cli_args.channel_list is not None:
         channel_groups = {0: {'channels': cli_args.channel_list}}
     elif cli_args.layout is not None:
+
         layout = util.run_prb(cli_args.layout)
         channel_groups = layout['channel_groups']
         dead_channels = layout['dead_channels'] if 'dead_channels' in layout else []
+        if cli_args.channel_groups:
+            channel_groups = {i: channel_groups[i] for i in cli_args.channel_groups if i in channel_groups}
+
     else:
         warnings.warn('No channels given, using all found in target directory.')
         raise NotImplementedError('Grabbing all channels from file names not done yet. Sorry.')
