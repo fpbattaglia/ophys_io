@@ -29,7 +29,7 @@ DATASET=2014-10-30_15-04-50
 PROBEFILE=${ANIMAL}_16.prb
 NODE=106
 DURATION=10
-if [ -z $SGE_TASK_ID] ; then
+if [ -z $SGE_TASK_ID ] ; then
 	GROUP=4
 else
 	GROUP=$(expr $SGE_TASK_ID - 1)
