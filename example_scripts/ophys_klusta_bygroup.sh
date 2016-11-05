@@ -77,10 +77,12 @@ source activate klusta
 cd klusta${GROUP}
 klusta *.prm
 
-cp /home/battaglia/batch_out/${OUTFILE} klusta${GROUP} 
-
 echo ---------------------------- store result --------------------------
 
 cd .. 
 ssh ${REMOTE_USER} mkdir -p ${REMOTE_DESTDIR}/${EXPERIMENT}/${ANIMAL}/${DATASET}
-rsync -avh -e ssh klusta${GROUP} $REMOTE_DEST/${EXPERIMENT}/${ANIMAL}/${DATASET}/klusta${GROUP}
+rsync -avh -e ssh klusta${GROUP} $REMOTE_DEST/${EXPERIMENT}/${ANIMAL}/${DATASET}/
+
+echo ---------------------------- save script output --------------------
+
+cp /home/battaglia/batch_out/${OUTFILE} klusta${GROUP}.sgeout
