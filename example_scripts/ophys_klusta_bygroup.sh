@@ -54,7 +54,7 @@ cd ${DATASET}
 rsync -avh  -e ssh ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${PROBEFILE} .
 
 source activate ophys
-get_needed_channels --node=106 m0001_16.prb 4 > chans.txt
+get_needed_channels --node=106 m0001_16.prb ${GROUP} > chans.txt
 rsync --files-from=chans.txt  -avh  -e ssh ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${DATASET} .
 
 mkdir -p klusta${GROUP}
