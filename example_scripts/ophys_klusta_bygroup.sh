@@ -13,10 +13,14 @@ WORKDIR=/local # but this is equivalent
 
 # here, we assume that on the NAS the data is stored according to the convention 
 # ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${DATASET}
-# moreover, we assume that there is a probe file at 
+# moreover, we assume that there is a "master" probe file at 
 # ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${PROBEFILE}
+# the probe file is used to determine which files we need to download to each node 
 # if your layout differs, you must change the two rsync commands below
-REMOTE_SHARE=fpbatta@tompouce.science.ru.nl:/volume1/homes/reichler/data
+REMOTE_USER=fpbatta@tompouce.science.ru.nl
+REMOTE_ORIGDIR=/volume1/homes/reichler/data
+REMOTE_DESTDIR=/volume1/homes/fpbatta/dataTestRonny
+
 EXPERIMENT=SocialPFC
 ANIMAL=m0001
 DATASET=2014-10-30_15-04-50
@@ -25,7 +29,11 @@ NODE=106
 DURATION=10
 DEFAULT_GROUP=1 # in case we're not running in a SGE task
 
+# ---------- end parameters 
 
+
+REMOTE_SHARE=${REMOTE_USER}:$REMOTE_ORIGDIR
+REMOTE_DEST=${REMOTE_USER}:$REMOTE_DESTDIR
 export PATH=/home/battaglia/anaconda3/bin::$PATH
 echo 
 HOST=`hostname`
@@ -51,19 +59,28 @@ mkdir -p ${DATASET}
 cd ${DATASET}
 
 # get the data and convert them in the right format for klusta
+echo ---------------------------- loading data --------------------------
 rsync -avh  -e ssh ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${PROBEFILE} .
 
 source activate ophys
-get_needed_channels --node=106 m0001_16.prb ${GROUP} > chans.txt
+get_needed_channels --node=$NODE $PROBEFILE ${GROUP} > chans.txt
 rsync --files-from=chans.txt  -avh  -e ssh ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${DATASET} .
 
+echo ---------------------------- convert format ------------------------
 mkdir -p klusta${GROUP}
 oio . -l ${PROBEFILE} --channel-groups ${GROUP} -S -n $NODE -D ${DURATION} -o klusta${GROUP}/raw.dat
 
 # run klusta
+echo ---------------------------- spike sort ----------------------------
 source activate klusta
 
 cd klusta${GROUP}
 klusta *.prm
 
 cp /home/battaglia/batch_out/${OUTFILE} klusta${GROUP} 
+
+echo ---------------------------- store result --------------------------
+
+cd .. 
+ssh ${REMOTE_USER} mkdir -p ${REMOTE_DESTDIR}/${EXPERIMENT}/${ANIMAL}/${DATASET}
+rsync -avh -e ssh klusta${GROUP} $REMOTE_DEST/${EXPERIMENT}/${ANIMAL}/${DATASET}/klusta${GROUP}
