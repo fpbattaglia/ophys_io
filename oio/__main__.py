@@ -151,6 +151,11 @@ def main(cli_args=None):
         warnings.warn('No channels given, using all found in target directory.')
         raise NotImplementedError('Grabbing all channels from file names not done yet. Sorry.')
 
+    prm_in_file = None
+    if cli_args.params is not None:
+        prm_in_file = cli_args.params
+
+
     # involved file names
     if cli_args.output is None:
         out_path, out_file, out_ext = '', op.basename(op.splitext(cli_args.target[0])[0]), "dat"
@@ -205,7 +210,12 @@ def main(cli_args=None):
             prb_out.write('channel_groups = {}'.format(pprint.pformat(cg_dict)))
 
         with open(op.join(out_path, output_base_name + '.prm'), 'w') as prm_out:
-            prm_in = pkgr.resource_string('config', 'default.prm').decode()
+            if prm_in_file:
+                f = open(prm_in_file, 'r')
+                prm_in = f.read()
+                f.close()
+            else:
+                prm_in = pkgr.resource_string('config', 'default.prm').decode()
             prm_out.write(prm_in.format(experiment_name=output_base_name,
                                         probe_file=output_base_name + '.prb',
                                         raw_file=output_file_path,
