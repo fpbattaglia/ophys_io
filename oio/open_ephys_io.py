@@ -1,9 +1,8 @@
 import re
 import sys
 import os.path as op
-import logging
-import warnings
 import numpy as np
+import neuroseries as nts
 
 SIZE_HEADER = 1024  # size of header in B
 NUM_SAMPLES = 1024  # number of samples per record
@@ -75,35 +74,153 @@ def fmt_header(header_str):
 class ContinuousFile:
     """Single .continuous file. Generates chunks of data."""
 
-    # TODO: Allow record counts and offsets
-
-    def __init__(self, path):
+    def __init__(self, path, t_min=None, t_max=None, records_per_iter=1):
         self.path = op.abspath(op.expanduser(path))
         self.file_size = op.getsize(self.path)
         # Make sure we have full records all the way through
         assert (self.file_size - SIZE_HEADER) % SIZE_RECORD == 0
         self.num_records = (self.file_size - SIZE_HEADER) // SIZE_RECORD
         self.duration = self.num_records
-
-    def __enter__(self):
+        self._block_timestamps = None
+        self.__fid = open(self.path, 'rb')
         self.header = self._read_header()
         self.record_dtype = data_dt(self.header['blockLength'])
-        self.__fid = open(self.path, 'rb')
+        self.t_min = t_min
+        self.t_max = t_max
+        self.cur_block, n_blocks = self._records_for_interval(self.t_min, self.t_max)
+        self.last_block = self.cur_block + n_blocks
+        self.records_per_iter = records_per_iter
+        self.convert_to_volts = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.cur_block > self.last_block:
+            raise StopIteration
+        else:
+            return self.read_record(count=self.records_per_iter, convert_to_volts=self.convert_to_volts)
+
+    def __enter__(self):
         self.__fid.seek(SIZE_HEADER)
         return self
 
     def _read_header(self):
         return fmt_header(np.fromfile(self.path, dtype=header_dt(), count=1))
 
-    def read_record(self, count=1):
+    def read_record(self, count=1, convert_to_volts=False):
         buf = np.fromfile(self.__fid, dtype=self.record_dtype, count=count)
 
         # make sure offsets are likely correct
         assert np.array_equal(buf[0]['rec_mark'], REC_MARKER)
-        return buf['samples'].reshape(-1)
+        if convert_to_volts:
+            data = buf['samples'].reshape(-1) * self.header['bitVolts']
+        else:
+            data = buf['samples'].reshape(-1)
+        return data
+
+    @property
+    def n_records(self):
+        return int((op.getsize(self.path) - SIZE_HEADER) / SIZE_RECORD)
 
     def next(self):
         return self.read_record() if self.__fid.tell() < self.file_size else None
 
     def __exit__(self, *args):
         self.__fid.close()
+
+    @property
+    def block_timestamps(self):
+        if self._block_timestamps is None:
+            conv_usec = 1.e6 / self.header['sampleRate']
+            timestamps = np.array([])
+            blocks_per_iter = 1000
+            with open(self.path) as f:
+                f.seek(SIZE_HEADER)
+                for b in range(0, self.n_records, blocks_per_iter):
+                    buf = np.fromfile(f, dtype=self.record_dtype, count=blocks_per_iter)
+                    timestamps = np.hstack([timestamps, (buf['timestamp'] * conv_usec)])
+            self._block_timestamps = timestamps
+
+        return self._block_timestamps
+
+    def _records_for_interval(self, t_min, t_max):
+        """
+        get the blocks that cover the interval asked
+        Args:
+            t_min: minimum (if None, it will be 0) and
+            t_max: maximum time (if None, it will be the last record) in the requested interval
+
+        Returns:
+            first_block
+            n_blocks
+        """
+        if t_min is None or t_min <= self.block_timestamps[0]:
+            first_block = 0
+        else:
+            first_block = np.where(self.block_timestamps < t_min)[0][-1]
+
+        if t_max is None or t_max >= self.block_timestamps[-1]:
+            n_blocks = self.n_records - first_block
+        else:
+            last_block = np.where(self.block_timestamps > t_max)[0][0]
+            n_blocks = last_block - first_block
+
+        return first_block, n_blocks
+
+    def _skip_to_block(self, block):
+        if self.__fid is None:
+            self.__fid = open(self.path, 'rb')
+        self.__fid.seek(SIZE_HEADER + block * SIZE_RECORD)
+
+    def read_interval(self, t_min=None, t_max=None):
+        """
+        returns data and timestamps. Records will be selected based on
+        Args:
+            t_min: the minimum time (if None it will be the first time in file)
+            t_max: the maximum time (if None it will be the last time in file)
+
+        Returns:
+            data in a numpy array (in mV)
+            timestamps: timestamps for each time point in microseconds
+        """
+        first_block, n_blocks = self._records_for_interval(t_min, t_max)
+
+        self._skip_to_block(first_block)
+        data = self.read_record(count=n_blocks, convert_to_volts=True)
+        conv_usec = 1.e6 / self.header['sampleRate']
+        tstamps = np.array([])
+        for r in range(first_block, first_block+n_blocks):
+            t = self.block_timestamps[r] + conv_usec * np.arange(NUM_SAMPLES)
+            tstamps = np.hstack((tstamps, t))
+        assert len(data) == len(tstamps)
+        return data, tstamps
+
+
+def is_sequence(obj):
+    import collections
+    if isinstance(obj, str):
+        return False
+    return isinstance(obj, collections.Sequence)
+
+
+def load_continuous_tsd(paths, t_min=None, t_max=None, col_template=r'.*_(\w+\d+)\..*'):
+    if isinstance(paths, str):
+        paths = (paths,)
+    elif not is_sequence(paths):
+        raise TypeError("paths must be a string or list of strings.")
+
+    f = ContinuousFile(paths[0])
+    data, tstamps = f.read_interval(t_min, t_max)
+    data = data.reshape((-1, 1))
+    columns = [re.match(col_template, paths[0])]
+    for fn in paths[1:]:
+        f = ContinuousFile(fn)
+        d, ts1 = f.read_interval(t_min, t_max)
+        assert len(ts1) == len(tstamps)
+        data = np.hstack((data, d.reshape((-1, 1))))
+        columns.append(re.match(col_template, fn))
+    cont_tsd = nts.TsdFrame(tstamps, data, columns=columns)
+    print(data[0:10])
+
+    return cont_tsd

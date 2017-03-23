@@ -65,13 +65,13 @@ cd ${DATASET}
 echo ---------------------------- loading data --------------------------
 rsync -avh  -e ssh ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${PROBEFILE} .
 
-# FIXME: this will have to be changed to the REMOTE_SHARE once the params files are
+# FIXME: this will have to be changed to the REMOTE_SHARE once the params files are stored in there
 rsync -avh  -e ssh ${REMOTE_DEST}/${EXPERIMENT}/${ANIMAL}/${PARAMFILE} .
 
 OUTDIR=klusta_$(basename $PROBEFILE .prb)_$(basename $PARAMFILE .prm.in)_${GROUP}
 echo $OUTDIR
 source activate ophys
-TMPFILE=$(mktemp /tmp/ophys.XXXXXX)¬
+TMPFILE=$(mktemp /tmp/ophys.XXXXXX)
 get_needed_channels --node=$NODE $PROBEFILE ${GROUP} > $TMPFILE
 rsync --files-from=${TMPFILE}  -avh  -e ssh ${REMOTE_SHARE}/${EXPERIMENT}/${ANIMAL}/${DATASET} .
 rm $TMPFILE
