@@ -25,9 +25,9 @@ EXPERIMENT=SocialPFC
 ANIMAL=m0001
 DATASET=2014-10-30_15-04-50
 PROBEFILE=${ANIMAL}_16.prb
-PARAMFILE=conf1.prm.in
+PARAMFILE=default.prm.in
 NODE=106
-DURATION=10
+DURATION=0
 DEFAULT_GROUP=8 # in case we're not running in a SGE task
 
 # ---------- end parameters 
