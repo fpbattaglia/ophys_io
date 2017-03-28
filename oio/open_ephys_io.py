@@ -204,7 +204,8 @@ def is_sequence(obj):
     return isinstance(obj, collections.Sequence)
 
 
-def load_continuous_tsd(paths, t_min=None, t_max=None, col_template=r'.*_(\w+\d+)\..*'):
+def load_continuous_tsd(paths, t_min=None, t_max=None, col_template=r'.*_(\w+\d+)\..*', downsample=None):
+    import scipy.signal as ss
     if isinstance(paths, str):
         paths = (paths,)
     elif not is_sequence(paths):
@@ -212,15 +213,24 @@ def load_continuous_tsd(paths, t_min=None, t_max=None, col_template=r'.*_(\w+\d+
 
     f = ContinuousFile(paths[0])
     data, tstamps = f.read_interval(t_min, t_max)
+    if downsample:
+        data = ss.decimate(data, downsample, zero_phase=True)
     data = data.reshape((-1, 1))
-    columns = [re.match(col_template, paths[0])]
+    rx = re.match(col_template, paths[0])
+    columns = [rx.groups()[0]]
     for fn in paths[1:]:
         f = ContinuousFile(fn)
         d, ts1 = f.read_interval(t_min, t_max)
         assert len(ts1) == len(tstamps)
+        if downsample:
+            d = ss.decimate(d, downsample, zero_phase=True)
         data = np.hstack((data, d.reshape((-1, 1))))
-        columns.append(re.match(col_template, fn))
+        rx = re.match(col_template, fn)
+        columns.append(rx.groups()[0])
+
+    if downsample:
+        tstamps = tstamps[::downsample]
+        data = data[:,:len(tstamps)]
     cont_tsd = nts.TsdFrame(tstamps, data, columns=columns)
-    print(data[0:10])
 
     return cont_tsd
