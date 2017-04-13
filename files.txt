@@ -1,0 +1,5 @@
+/usr/local/anaconda/envs/batlab/lib/python3.5/site-packages/oio-0.1.2.dev0-py3.5.egg
+/usr/local/anaconda/envs/batlab/bin/oio
+/usr/local/anaconda/envs/batlab/bin/get_needed_channels
+/usr/local/anaconda/envs/batlab/bin/nosetests-3.5
+/usr/local/anaconda/envs/batlab/bin/nosetests

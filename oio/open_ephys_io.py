@@ -74,7 +74,7 @@ def fmt_header(header_str):
 class ContinuousFile:
     """Single .continuous file. Generates chunks of data."""
 
-    def __init__(self, path, t_min=None, t_max=None, records_per_iter=1):
+    def __init__(self, path, t_min=None, t_max=None, records_per_iter=1, label=None, label_template=r'.*_(\w+\d+)\..*'):
         self.path = op.abspath(op.expanduser(path))
         self.file_size = op.getsize(self.path)
         # Make sure we have full records all the way through
@@ -91,6 +91,11 @@ class ContinuousFile:
         self.last_block = self.cur_block + n_blocks
         self.records_per_iter = records_per_iter
         self.convert_to_volts = False
+        if label is not None:
+            self.label = label
+        else:
+            rx = re.match(label_template, path)
+            self.label = rx.groups()[0]
 
     def __iter__(self):
         return self
@@ -144,6 +149,12 @@ class ContinuousFile:
 
         return self._block_timestamps
 
+    def start_time(self, units='us'):
+        return nts.TimeUnits.return_timestamps(self.block_timestamps[0], units=units)
+
+    def end_time(self, units='us'):
+        return nts.TimeUnits.return_timestamps(self.block_timestamps[-1], units=units)
+
     def _records_for_interval(self, t_min, t_max):
         """
         get the blocks that cover the interval asked
@@ -189,48 +200,72 @@ class ContinuousFile:
         self._skip_to_block(first_block)
         data = self.read_record(count=n_blocks, convert_to_volts=True)
         conv_usec = 1.e6 / self.header['sampleRate']
-        tstamps = np.array([])
+        tstamps = np.zeros((n_blocks*NUM_SAMPLES,))
+        tst_idx = 0
         for r in range(first_block, first_block+n_blocks):
             t = self.block_timestamps[r] + conv_usec * np.arange(NUM_SAMPLES)
-            tstamps = np.hstack((tstamps, t))
+            tstamps[tst_idx:(tst_idx+NUM_SAMPLES)] = t
+            tst_idx += NUM_SAMPLES
         assert len(data) == len(tstamps)
         return data, tstamps
 
 
-def is_sequence(obj):
+def is_sequence(obj): # TODO send to a util package
     import collections
     if isinstance(obj, str):
         return False
     return isinstance(obj, collections.Sequence)
 
 
-def load_continuous_tsd(paths, t_min=None, t_max=None, col_template=r'.*_(\w+\d+)\..*', downsample=None):
+def load_continuous_tsd(paths, t_min=None, t_max=None, downsample=None,
+                        columns=None):
+    """
+    read data for a specific time interval from a list of files (or ContinuousFile objects)
+    Args:
+        paths: a list of pathnames or ContinuousFile objects
+        t_min: the low end of the time interval to read
+        t_max: the high end of the time interval to read
+        downsample: if not None, it should be an integer and acts as a downsampling factor (useful to get e.g. LFP)
+        columns: a list of column names for the resulting TsdFrame. If None, the labels from the ContinuousFile objects 
+        are used
+
+    Returns:
+        a TsdFrame with the data 
+    """
     import scipy.signal as ss
     if isinstance(paths, str):
         paths = (paths,)
     elif not is_sequence(paths):
         raise TypeError("paths must be a string or list of strings.")
 
-    f = ContinuousFile(paths[0])
-    data, tstamps = f.read_interval(t_min, t_max)
+    if isinstance(paths[0], str):
+        cf = [ContinuousFile(p) for p in paths]
+    else:
+        cf = paths
+
+    data, tstamps = cf[0].read_interval(t_min, t_max)
     if downsample:
         data = ss.decimate(data, downsample, zero_phase=True)
     data = data.reshape((-1, 1))
-    rx = re.match(col_template, paths[0])
-    columns = [rx.groups()[0]]
-    for fn in paths[1:]:
-        f = ContinuousFile(fn)
+    columns_from_files = False
+    if columns is None:
+        columns = [cf[0].label]
+        columns_from_files = True
+    if isinstance(columns, tuple):
+        columns = list(columns)
+    for f in cf[1:]:
         d, ts1 = f.read_interval(t_min, t_max)
         assert len(ts1) == len(tstamps)
         if downsample:
             d = ss.decimate(d, downsample, zero_phase=True)
         data = np.hstack((data, d.reshape((-1, 1))))
-        rx = re.match(col_template, fn)
-        columns.append(rx.groups()[0])
+        if columns_from_files:
+            columns.append(f.label)
 
     if downsample:
         tstamps = tstamps[::downsample]
-        data = data[:,:len(tstamps)]
+        data = data[:, :len(tstamps)]
+
     cont_tsd = nts.TsdFrame(tstamps, data, columns=columns)
 
     return cont_tsd
